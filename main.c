@@ -8,7 +8,13 @@
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 
-struct termios original_termios;
+/** data **/
+
+struct EditorConfig {
+    struct termios original_termios;
+};
+
+struct EditorConfig E;
 
 // Error handling
 void die(const char *s) {
@@ -16,16 +22,17 @@ void die(const char *s) {
     exit(1);
 }
 
+/** terminal **/
 void rollbackRawMode() {
-    if ( tcsetattr(STDIN_FILENO, TCSAFLUSH, &original_termios) == -1 ) die("tssetattr");
+    if ( tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.original_termios) == -1 ) die("tssetattr");
 }
 
 void enableRawMode() {
     // This gets the terminal structure, a data strucutre if you will.
-    if ( tcgetattr(STDIN_FILENO, &original_termios) == -1 ) die( "tsgetattr");
+    if ( tcgetattr(STDIN_FILENO, &E.original_termios) == -1 ) die( "tsgetattr");
     atexit(rollbackRawMode);
 
-    struct termios raw = original_termios;
+    struct termios raw = E.original_termios;
     /**
      * These are the different flags that we are turning off,
      * I don't know what all of these flags does yet
@@ -42,19 +49,55 @@ void enableRawMode() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
+char editorReadKey() {
+    int nread;
+    char c;
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+        if (nread == -1 && errno != EAGAIN) die("read");
+    }
+    return c;
+}
+
+/** input **/
+void editorProcessKey() {
+    const char c = editorReadKey();
+
+    switch(c) {
+        case (CTRL_KEY('q')):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
+            exit(0);
+            break;
+        default:
+            break;
+    }
+}
+
+/** output **/
+void editorDrawRows() {
+    for (int y = 0; y < 24; y++) {
+        write(STDOUT_FILENO, "~\r\n", 3);
+    }
+}
+
+void editorRefreshScreen() {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+
+
+    editorDrawRows();
+    write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+
+/** main **/
 int main() {
 
     enableRawMode();
 
     while (1) {
-        char c = '\0';
-        if (read(STDIN_FILENO, &c, 1) == -1 && errno != EAGAIN) die("read");
-        if (iscntrl(c)) {
-            printf("%d\r\n", c);
-        } else {
-            printf("%d ('%c')\r\n", c, c);
-        }
-        if (c == CTRL_KEY('q')) break;
+        editorRefreshScreen();
+        editorProcessKey();
     }
     return 0;
 }
